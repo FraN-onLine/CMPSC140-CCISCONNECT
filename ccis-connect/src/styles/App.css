@@ -82,6 +82,23 @@
   font-size: 13px;
 }
 
+.logout-button {
+  padding: 6px 16px;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+  margin-left: auto;
+}
+
+.logout-button:hover {
+  background: #dc2626;
+}
+
 /* Search Bar */
 .search-bar {
   margin-bottom: 16px;

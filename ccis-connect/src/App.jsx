@@ -4,12 +4,15 @@ import MapView from './components/MapView';
 import Rooms from './components/Rooms';
 import Borrow from './components/Borrow';
 import Admin from './components/Admin';
+import Login from './components/Login';
 import { rooms as initialRooms, equipment as initialEquipment, users } from './data';
-import './App.css';
+import './styles/App.css';
 
 function App() {
   const [view, setView] = useState('map');
   const [userRole, setUserRole] = useState('guest');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [roomsData, setRoomsData] = useState(initialRooms);
   const [equipmentData, setEquipmentData] = useState(initialEquipment);
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -21,10 +24,19 @@ function App() {
     const savedRooms = localStorage.getItem('ccis_rooms');
     const savedEquipment = localStorage.getItem('ccis_equipment');
     const savedRequests = localStorage.getItem('ccis_requests');
+    const savedUser = localStorage.getItem('ccis_current_user');
     
     if (savedRooms) setRoomsData(JSON.parse(savedRooms));
     if (savedEquipment) setEquipmentData(JSON.parse(savedEquipment));
     if (savedRequests) setBorrowRequests(JSON.parse(savedRequests));
+    
+    // Auto-login if user session exists
+    if (savedUser) {
+      const user = JSON.parse(savedUser);
+      setCurrentUser(user);
+      setUserRole(user.role);
+      setIsLoggedIn(true);
+    }
   }, []);
 
   // Save to localStorage when data changes
@@ -133,7 +145,28 @@ function App() {
     room.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const currentUser = users[userRole] || users.guest;
+  const displayUser = currentUser || users[userRole] || users.guest;
+
+  // Handle login
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+    setUserRole(user.role);
+    setIsLoggedIn(true);
+    localStorage.setItem('ccis_current_user', JSON.stringify(user));
+  };
+
+  // Handle logout
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    setUserRole('guest');
+    localStorage.removeItem('ccis_current_user');
+  };
+
+  // Show login page if not logged in
+  if (!isLoggedIn) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div className="app-root">
@@ -148,7 +181,8 @@ function App() {
           <option value="faculty">Faculty</option>
           <option value="admin">Administrator</option>
         </select>
-        <span className="user-info">({currentUser.name})</span>
+        <span className="user-info">({displayUser.name})</span>
+        <button onClick={handleLogout} className="logout-button">Logout</button>
       </div>
 
       {/* Search Bar (for map and rooms views) */}
@@ -171,7 +205,7 @@ function App() {
             rooms={filteredRooms}
             selectedRoom={selectedRoom}
             setSelectedRoom={setSelectedRoom}
-            currentUser={currentUser}
+            currentUser={displayUser}
             onRoomClick={(room) => {
               setSelectedRoom(room);
             }}
@@ -181,7 +215,7 @@ function App() {
         {view === 'rooms' && (
           <Rooms
             rooms={filteredRooms}
-            currentUser={currentUser}
+            currentUser={displayUser}
             onToggleRoom={toggleRoomAvailability}
             onQRUpdate={updateRoomViaQR}
           />
@@ -190,7 +224,7 @@ function App() {
         {view === 'borrow' && (
           <Borrow
             equipment={equipmentData}
-            currentUser={currentUser}
+            currentUser={displayUser}
             selectedRoom={selectedRoom}
             onSubmitRequest={submitBorrowRequest}
             requests={borrowRequests}
@@ -202,7 +236,7 @@ function App() {
             rooms={roomsData}
             equipment={equipmentData}
             requests={borrowRequests}
-            currentUser={currentUser}
+            currentUser={displayUser}
             onApproveRequest={approveRequest}
             onRejectRequest={rejectRequest}
             onReturnEquipment={returnEquipment}
