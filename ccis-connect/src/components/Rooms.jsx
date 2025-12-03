@@ -4,10 +4,31 @@ export default function Rooms({ rooms, currentUser, onToggleRoom, onQRUpdate }) 
   const [qrScanning, setQrScanning] = useState(false);
   const [qrCode, setQrCode] = useState('');
   const [filter, setFilter] = useState('all'); // all, available, occupied
+  const [scanError, setScanError] = useState('');
+  const [scanSuccess, setScanSuccess] = useState('');
+  const [selectedAction, setSelectedAction] = useState('entering'); // entering or leaving
+
+  // Debug: Log currentUser to console
+  console.log('Rooms - currentUser:', currentUser);
+  console.log('Rooms - canUpdateRooms:', currentUser?.canUpdateRooms);
+
+  // Simulate instructor schedule (in real app, this would come from backend)
+  const getInstructorSchedule = () => {
+    const currentHour = new Date().getHours();
+    return {
+      hasSchedule: true,
+      scheduledRooms: ['CCIS-101', 'CCIS-102'], // Example scheduled rooms
+      currentTimeSlot: currentHour >= 8 && currentHour < 17,
+      scheduledHour: currentHour
+    };
+  };
 
   const handleQRScan = () => {
     setQrScanning(true);
-    // Simulate QR code scanning
+    setScanError('');
+    setScanSuccess('');
+    
+    // Simulate QR code scanning with camera
     setTimeout(() => {
       const randomRoom = rooms[Math.floor(Math.random() * rooms.length)];
       setQrCode(randomRoom.id);
@@ -17,22 +38,66 @@ export default function Rooms({ rooms, currentUser, onToggleRoom, onQRUpdate }) 
 
   const handleQRSubmit = () => {
     if (!qrCode) {
-      alert('Please scan a QR code first');
+      setScanError('Please scan a QR code first');
       return;
     }
 
     const room = rooms.find(r => r.id === qrCode);
     if (!room) {
-      alert('Room not found. Please scan a valid QR code.');
+      setScanError('Room not found. Please scan a valid QR code.');
       setQrCode('');
       return;
     }
 
-    // Toggle room availability
-    const newStatus = !room.available;
+    const schedule = getInstructorSchedule();
+    
+    // Validate if faculty member is scheduled for this room
+    if (!schedule.scheduledRooms.includes(room.id)) {
+      setScanError(`Cannot update current status. You are not scheduled for ${room.id} at this time.`);
+      return;
+    }
+
+    // Check if it's within valid time slot
+    if (!schedule.currentTimeSlot) {
+      setScanError('Cannot update outside of class hours (8:00 AM - 5:00 PM).');
+      return;
+    }
+
+    // Update room status based on action
+    let newStatus;
+    let message;
+    
+    if (selectedAction === 'entering') {
+      newStatus = false; // Mark as occupied
+      message = `Room ${room.id} marked as Occupied. Class started.`;
+    } else {
+      newStatus = true; // Mark as available
+      message = `Room ${room.id} marked as Available. Class ended.`;
+    }
+
     onQRUpdate(room.id, newStatus);
-    alert(`Room ${room.id} marked as ${newStatus ? 'Available' : 'Occupied'}`);
+    setScanSuccess(message);
+    setScanError('');
     setQrCode('');
+    
+    // Clear success message after 5 seconds
+    setTimeout(() => setScanSuccess(''), 5000);
+
+    // Schedule automatic de-allocation after 10 minutes if entering
+    if (selectedAction === 'entering') {
+      scheduleAutoDeallocation(room.id);
+    }
+  };
+
+  const scheduleAutoDeallocation = (roomId) => {
+    // Simulate auto de-allocation after 10 minutes
+    setTimeout(() => {
+      const room = rooms.find(r => r.id === roomId);
+      if (room && !room.available) {
+        onQRUpdate(roomId, true);
+        console.log(`Auto de-allocated ${roomId} after 10 minutes`);
+      }
+    }, 600000); // 10 minutes in milliseconds
   };
 
   const filteredRooms = rooms.filter(room => {
@@ -68,31 +133,103 @@ export default function Rooms({ rooms, currentUser, onToggleRoom, onQRUpdate }) 
       </div>
 
       {/* QR Code Scanner (Faculty/Admin only) */}
-      {currentUser.canUpdateRooms && (
+      {currentUser && currentUser.canUpdateRooms && (
         <div className="qr-scanner-panel">
-          <h3>Update Room Status via QR Code</h3>
+          <h3>📱 Update Room Status via QR Code</h3>
           <p className="qr-instructions">
-            Scan the QR code placed in each classroom to update its availability status.
+            Scan the QR code in your assigned classroom when entering or leaving to update availability.
           </p>
+          
+          {/* Action Selection */}
+          <div className="qr-action-selector">
+            <label>
+              <input 
+                type="radio" 
+                name="action" 
+                value="entering" 
+                checked={selectedAction === 'entering'}
+                onChange={(e) => setSelectedAction(e.target.value)}
+              />
+              <span className="action-label">🚪 Entering Room (Mark as Occupied)</span>
+            </label>
+            <label>
+              <input 
+                type="radio" 
+                name="action" 
+                value="leaving" 
+                checked={selectedAction === 'leaving'}
+                onChange={(e) => setSelectedAction(e.target.value)}
+              />
+              <span className="action-label">👋 Leaving Room (Mark as Available)</span>
+            </label>
+          </div>
+
+          {/* Error Message */}
+          {scanError && (
+            <div className="scan-error-message">
+              <span className="error-icon">⚠️</span>
+              <span>{scanError}</span>
+            </div>
+          )}
+
+          {/* Success Message */}
+          {scanSuccess && (
+            <div className="scan-success-message">
+              <span className="success-icon">✅</span>
+              <span>{scanSuccess}</span>
+            </div>
+          )}
+
           <div className="qr-controls">
             <button 
-              className={`btn-primary ${qrScanning ? 'scanning' : ''}`}
+              className={`btn-scan ${qrScanning ? 'scanning' : ''}`}
               onClick={handleQRScan}
               disabled={qrScanning}
             >
-              {qrScanning ? 'Scanning QR Code...' : '📷 Scan QR Code'}
+              {qrScanning ? (
+                <>
+                  <span className="spinner">⟳</span> Scanning QR Code...
+                </>
+              ) : (
+                <>📷 Scan QR Code</>
+              )}
             </button>
+            
             {qrCode && (
               <div className="qr-result">
-                <p>Scanned Room: <strong>{qrCode}</strong></p>
-                <button className="btn-secondary" onClick={handleQRSubmit}>
-                  Update Status
-                </button>
-                <button className="btn-text" onClick={() => setQrCode('')}>
-                  Clear
-                </button>
+                <div className="qr-result-header">
+                  <span className="qr-icon">🎯</span>
+                  <div>
+                    <p className="qr-room-label">Scanned Room:</p>
+                    <p className="qr-room-id">{qrCode}</p>
+                  </div>
+                </div>
+                <div className="qr-result-actions">
+                  <button className="btn-update" onClick={handleQRSubmit}>
+                    ✓ Update Room Status
+                  </button>
+                  <button className="btn-cancel" onClick={() => {
+                    setQrCode('');
+                    setScanError('');
+                    setScanSuccess('');
+                  }}>
+                    ✗ Cancel
+                  </button>
+                </div>
               </div>
             )}
+          </div>
+
+          {/* Instructions */}
+          <div className="qr-help">
+            <h4>💡 How it works:</h4>
+            <ol>
+              <li>Select whether you're entering or leaving the room</li>
+              <li>Click "Scan QR Code" and point camera at the QR code in the room</li>
+              <li>System validates your schedule for this room</li>
+              <li>Room status updates automatically for all users</li>
+              <li>Status auto-resets 10 minutes after scheduled class end time</li>
+            </ol>
           </div>
         </div>
       )}

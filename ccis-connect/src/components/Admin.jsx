@@ -8,10 +8,33 @@ export default function Admin({
   onApproveRequest, 
   onRejectRequest, 
   onReturnEquipment,
-  onToggleRoom 
+  onToggleRoom,
+  onUpdateEquipmentStatus 
 }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [returnForm, setReturnForm] = useState({ equipmentId: '', quantity: 1 });
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [showRequestDetails, setShowRequestDetails] = useState(false);
+  const [requestError, setRequestError] = useState('');
+  const [requestSuccess, setRequestSuccess] = useState('');
+  
+  // Equipment status management state
+  const [selectedEquipment, setSelectedEquipment] = useState(null);
+  const [showStatusUpdateModal, setShowStatusUpdateModal] = useState(false);
+  const [statusUpdateData, setStatusUpdateData] = useState({
+    status: '',
+    available: true,
+    quantity: 0,
+    reason: ''
+  });
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState('');
+  const [statusError, setStatusError] = useState('');
+  const [statusSuccess, setStatusSuccess] = useState('');
+  const [selectedItems, setSelectedItems] = useState([]);
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [showBulkUpdate, setShowBulkUpdate] = useState(false);
+  const [auditLog, setAuditLog] = useState([]);
 
   if (currentUser.role !== 'admin') {
     return (
@@ -41,6 +64,274 @@ export default function Admin({
     onReturnEquipment(returnForm.equipmentId, returnForm.quantity);
     alert(`Marked ${returnForm.quantity} item(s) as returned.`);
     setReturnForm({ equipmentId: '', quantity: 1 });
+  };
+
+  // Open status update modal
+  const handleStatusUpdateClick = (eq) => {
+    // Check for pending requests
+    const pendingForEquipment = requests.filter(
+      r => r.equipmentId === eq.id && r.status === 'pending'
+    );
+
+    if (pendingForEquipment.length > 0 && eq.quantity > 0) {
+      const count = pendingForEquipment.length;
+      setConfirmationMessage(
+        `Warning: This equipment has ${count} pending request${count > 1 ? 's' : ''}. ` +
+        `Changing status to "Unavailable" or "Under Maintenance" will affect these requests.`
+      );
+    }
+
+    setSelectedEquipment(eq);
+    setStatusUpdateData({
+      status: eq.available ? 'Available' : 'Unavailable',
+      available: eq.available,
+      quantity: eq.quantity,
+      reason: ''
+    });
+    setShowStatusUpdateModal(true);
+    setStatusError('');
+    setStatusSuccess('');
+  };
+
+  // Handle status update submission
+  const handleSubmitStatusUpdate = () => {
+    if (!selectedEquipment) return;
+
+    // Validate reason for status change
+    if (!statusUpdateData.reason.trim()) {
+      setStatusError('Please provide a reason for the status update.');
+      return;
+    }
+
+    // Show confirmation dialog
+    setShowConfirmation(true);
+  };
+
+  // Confirm and execute status update
+  const confirmStatusUpdate = () => {
+    if (!selectedEquipment) return;
+
+    try {
+      const updatePayload = {
+        equipmentId: selectedEquipment.id,
+        status: statusUpdateData.status,
+        available: statusUpdateData.available,
+        quantity: statusUpdateData.quantity,
+        reason: statusUpdateData.reason,
+        updatedBy: currentUser.name,
+        timestamp: new Date().toISOString()
+      };
+
+      // Log the change
+      const logEntry = {
+        id: Date.now(),
+        equipmentId: selectedEquipment.id,
+        equipmentName: selectedEquipment.name,
+        oldStatus: selectedEquipment.available ? 'Available' : 'Unavailable',
+        newStatus: statusUpdateData.status,
+        oldQuantity: selectedEquipment.quantity,
+        newQuantity: statusUpdateData.quantity,
+        reason: statusUpdateData.reason,
+        staffId: currentUser.name,
+        timestamp: new Date().toLocaleString()
+      };
+      setAuditLog(prev => [logEntry, ...prev]);
+
+      // Call the update handler
+      if (onUpdateEquipmentStatus) {
+        onUpdateEquipmentStatus(updatePayload);
+      }
+
+      setStatusSuccess(`Equipment status updated successfully. All users can now see the updated status.`);
+      
+      // Close modals after brief delay
+      setTimeout(() => {
+        setShowConfirmation(false);
+        setShowStatusUpdateModal(false);
+        setSelectedEquipment(null);
+        setStatusSuccess('');
+      }, 2000);
+
+    } catch (error) {
+      setStatusError('Unable to update equipment status. System error occurred. Please try again or contact system administrator.');
+      setShowConfirmation(false);
+    }
+  };
+
+  // Cancel status update
+  const cancelStatusUpdate = () => {
+    setShowStatusUpdateModal(false);
+    setShowConfirmation(false);
+    setSelectedEquipment(null);
+    setStatusUpdateData({
+      status: '',
+      available: true,
+      quantity: 0,
+      reason: ''
+    });
+    setStatusError('');
+    setStatusSuccess('');
+    setConfirmationMessage('');
+  };
+
+  // Bulk status update
+  const handleBulkStatusUpdate = () => {
+    if (selectedItems.length === 0) {
+      setStatusError('Please select at least one equipment item.');
+      return;
+    }
+
+    if (!bulkStatus) {
+      setStatusError('Please select a status to apply.');
+      return;
+    }
+
+    setShowBulkUpdate(true);
+  };
+
+  const confirmBulkUpdate = () => {
+    selectedItems.forEach(itemId => {
+      const eq = equipment.find(e => e.id === itemId);
+      if (eq && onUpdateEquipmentStatus) {
+        const updatePayload = {
+          equipmentId: itemId,
+          status: bulkStatus,
+          available: bulkStatus === 'Available',
+          quantity: eq.quantity,
+          reason: 'Bulk status update',
+          updatedBy: currentUser.name,
+          timestamp: new Date().toISOString()
+        };
+        onUpdateEquipmentStatus(updatePayload);
+
+        // Log bulk update
+        const logEntry = {
+          id: Date.now() + Math.random(),
+          equipmentId: itemId,
+          equipmentName: eq.name,
+          oldStatus: eq.available ? 'Available' : 'Unavailable',
+          newStatus: bulkStatus,
+          oldQuantity: eq.quantity,
+          newQuantity: eq.quantity,
+          reason: 'Bulk status update',
+          staffId: currentUser.name,
+          timestamp: new Date().toLocaleString()
+        };
+        setAuditLog(prev => [logEntry, ...prev]);
+      }
+    });
+
+    setStatusSuccess(`Bulk update completed: ${selectedItems.length} items updated.`);
+    setSelectedItems([]);
+    setBulkStatus('');
+    setShowBulkUpdate(false);
+    setTimeout(() => setStatusSuccess(''), 3000);
+  };
+
+  const toggleItemSelection = (itemId) => {
+    setSelectedItems(prev => 
+      prev.includes(itemId) 
+        ? prev.filter(id => id !== itemId)
+        : [...prev, itemId]
+    );
+  };
+
+  const handleViewRequestDetails = (request) => {
+    setSelectedRequest(request);
+    setShowRequestDetails(true);
+    setRequestError('');
+    setRequestSuccess('');
+  };
+
+  const handleCloseRequestDetails = () => {
+    setShowRequestDetails(false);
+    setSelectedRequest(null);
+    setRequestError('');
+    setRequestSuccess('');
+  };
+
+  const validateRequest = (request) => {
+    // Check if request has all required information
+    if (!request.equipmentId || !request.quantity || !request.requester) {
+      return {
+        valid: false,
+        message: 'Request details incomplete. Please verify with requester.'
+      };
+    }
+
+    // Check real-time equipment availability
+    const eq = equipment.find(e => e.id === request.equipmentId);
+    if (!eq) {
+      return {
+        valid: false,
+        message: 'Equipment not found in inventory.'
+      };
+    }
+
+    if (eq.quantity < request.quantity) {
+      return {
+        valid: false,
+        message: `Insufficient equipment available. Only ${eq.quantity} unit(s) available, but ${request.quantity} requested.`
+      };
+    }
+
+    if (!eq.available) {
+      return {
+        valid: false,
+        message: 'Equipment is currently unavailable.'
+      };
+    }
+
+    return { valid: true };
+  };
+
+  const handleApproveRequest = (requestId) => {
+    const request = requests.find(r => r.id === requestId);
+    if (!request) {
+      setRequestError('Request not found.');
+      return;
+    }
+
+    // Validate request
+    const validation = validateRequest(request);
+    if (!validation.valid) {
+      setRequestError(validation.message);
+      return;
+    }
+
+    try {
+      onApproveRequest(requestId);
+      setRequestSuccess(`Request approved! Equipment assigned to ${request.requester}.`);
+      setRequestError('');
+      
+      // Close details modal after 2 seconds
+      setTimeout(() => {
+        handleCloseRequestDetails();
+      }, 2000);
+    } catch (error) {
+      setRequestError('Approval failed. Please try again later.');
+    }
+  };
+
+  const handleRejectRequest = (requestId) => {
+    const request = requests.find(r => r.id === requestId);
+    if (!request) {
+      setRequestError('Request not found.');
+      return;
+    }
+
+    try {
+      onRejectRequest(requestId);
+      setRequestSuccess(`Request rejected.`);
+      setRequestError('');
+      
+      // Close details modal after 2 seconds
+      setTimeout(() => {
+        handleCloseRequestDetails();
+      }, 2000);
+    } catch (error) {
+      setRequestError('Rejection failed. Please try again later.');
+    }
   };
 
   return (
@@ -174,60 +465,98 @@ export default function Admin({
       {activeTab === 'requests' && (
         <div className="admin-requests">
           <div className="requests-header">
-            <h3>Borrowing Requests</h3>
+            <h3>Equipment Borrowing Requests</h3>
+            <p className="requests-subtitle">Review and manage pending equipment requests</p>
             <div className="request-filters">
-              <button 
-                className={pendingRequests.length > 0 ? 'filter-active' : ''}
-                onClick={() => {}}
-              >
-                Pending ({pendingRequests.length})
-              </button>
+              <span className={pendingRequests.length > 0 ? 'filter-active' : 'filter-inactive'}>
+                ⏳ Pending: {pendingRequests.length}
+              </span>
+              <span className="filter-info">
+                ✓ Approved: {approvedRequests.length}
+              </span>
+              <span className="filter-info">
+                ✗ Rejected: {rejectedRequests.length}
+              </span>
             </div>
           </div>
 
-          <div className="requests-list">
-            {pendingRequests.length === 0 ? (
-              <div className="no-requests">No pending requests at this time.</div>
-            ) : (
-              pendingRequests.map(req => (
-                <div key={req.id} className="request-card pending">
-                  <div className="request-card-header">
-                    <div className="request-title">
-                      <strong>{req.equipmentName}</strong>
-                      <span className="request-quantity">× {req.qty}</span>
-                    </div>
-                    <span className="request-status pending">Pending</span>
-                  </div>
-                  <div className="request-card-body">
-                    <div className="request-detail">
-                      <strong>Requester:</strong> {req.requester}
-                    </div>
-                    {req.roomId && (
-                      <div className="request-detail">
-                        <strong>For Room:</strong> {req.roomId}
-                      </div>
-                    )}
-                    <div className="request-detail">
-                      <strong>Requested:</strong> {new Date(req.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="request-card-actions">
-                    <button 
-                      className="btn-approve"
-                      onClick={() => onApproveRequest(req.id)}
-                    >
-                      ✓ Approve
-                    </button>
-                    <button 
-                      className="btn-reject"
-                      onClick={() => onRejectRequest(req.id)}
-                    >
-                      ✗ Reject
-                    </button>
-                  </div>
+          {/* Pending Requests */}
+          <div className="requests-section">
+            <h4>Pending Requests</h4>
+            <div className="requests-list">
+              {pendingRequests.length === 0 ? (
+                <div className="no-requests">
+                  <span className="no-requests-icon">✅</span>
+                  <p>No pending requests at this time.</p>
                 </div>
-              ))
-            )}
+              ) : (
+                pendingRequests.map(req => {
+                  const eq = equipment.find(e => e.id === req.equipmentId);
+                  const validation = validateRequest(req);
+                  
+                  return (
+                    <div key={req.id} className="request-card pending">
+                      <div className="request-card-header">
+                        <div className="request-title">
+                          <strong>{req.equipmentName}</strong>
+                          <span className="request-quantity">× {req.quantity}</span>
+                        </div>
+                        <span className="request-status pending">⏳ Pending</span>
+                      </div>
+                      <div className="request-card-body">
+                        <div className="request-detail">
+                          <strong>Requester:</strong> {req.userName || req.requester} ({req.userRole})
+                        </div>
+                        {req.purpose && (
+                          <div className="request-detail">
+                            <strong>Purpose:</strong> {req.purpose}
+                          </div>
+                        )}
+                        <div className="request-detail">
+                          <strong>Requested:</strong> {new Date(req.requestDate || req.createdAt).toLocaleString()}
+                        </div>
+                        <div className="request-detail">
+                          <strong>Duration:</strong> {req.duration}
+                        </div>
+                        <div className="request-detail">
+                          <strong>Available Stock:</strong> 
+                          <span className={eq && eq.quantity >= req.quantity ? 'stock-available' : 'stock-low'}>
+                            {eq ? ` ${eq.quantity} unit(s)` : ' Unknown'}
+                          </span>
+                        </div>
+                        {!validation.valid && (
+                          <div className="request-warning">
+                            <span className="warning-icon">⚠️</span>
+                            <span>{validation.message}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="request-card-actions">
+                        <button 
+                          className="btn-details"
+                          onClick={() => handleViewRequestDetails(req)}
+                        >
+                          📋 View Details
+                        </button>
+                        <button 
+                          className="btn-approve"
+                          onClick={() => handleApproveRequest(req.id)}
+                          disabled={!validation.valid}
+                        >
+                          ✓ Accept Request
+                        </button>
+                        <button 
+                          className="btn-reject"
+                          onClick={() => handleRejectRequest(req.id)}
+                        >
+                          ✗ Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
           {approvedRequests.length > 0 && (
@@ -238,13 +567,16 @@ export default function Admin({
                   <div key={req.id} className="request-card approved">
                     <div className="request-card-header">
                       <div className="request-title">
-                        <strong>{req.equipmentName}</strong> × {req.qty}
+                        <strong>{req.equipmentName}</strong> × {req.quantity || req.qty}
                       </div>
-                      <span className="request-status approved">Approved</span>
+                      <span className="request-status approved">✓ Approved</span>
                     </div>
                     <div className="request-card-body">
                       <div className="request-detail">
-                        {req.requester} • {new Date(req.approvedAt).toLocaleString()}
+                        {req.userName || req.requester} • {new Date(req.approvedDate || req.approvedAt).toLocaleString()}
+                      </div>
+                      <div className="request-detail">
+                        <strong>Return Date:</strong> {req.returnDate}
                       </div>
                     </div>
                   </div>
@@ -252,6 +584,236 @@ export default function Admin({
               </div>
             </div>
           )}
+
+          {/* Rejected Requests */}
+          {rejectedRequests.length > 0 && (
+            <div className="requests-section">
+              <h4>Rejected Requests</h4>
+              <div className="requests-list">
+                {rejectedRequests.slice(0, 10).map(req => (
+                  <div key={req.id} className="request-card rejected">
+                    <div className="request-card-header">
+                      <div className="request-title">
+                        <strong>{req.equipmentName}</strong> × {req.quantity || req.qty}
+                      </div>
+                      <span className="request-status rejected">✗ Rejected</span>
+                    </div>
+                    <div className="request-card-body">
+                      <div className="request-detail">
+                        {req.userName || req.requester} • {new Date(req.rejectedDate || req.rejectedAt).toLocaleString()}
+                      </div>
+                      {req.rejectionReason && (
+                        <div className="request-detail rejection-reason">
+                          <strong>Reason:</strong> {req.rejectionReason}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Returned/Completed Requests */}
+          {requests.filter(r => r.status === 'returned').length > 0 && (
+            <div className="requests-section">
+              <h4>Returned Equipment</h4>
+              <div className="requests-list">
+                {requests.filter(r => r.status === 'returned').slice(0, 10).map(req => (
+                  <div key={req.id} className="request-card returned">
+                    <div className="request-card-header">
+                      <div className="request-title">
+                        <strong>{req.equipmentName}</strong> × {req.quantity || req.qty}
+                      </div>
+                      <span className="request-status returned">↩ Returned</span>
+                    </div>
+                    <div className="request-card-body">
+                      <div className="request-detail">
+                        {req.userName || req.requester} • Returned: {new Date(req.actualReturnDate).toLocaleString()}
+                      </div>
+                      {req.condition && (
+                        <div className="request-detail">
+                          <strong>Condition:</strong> {req.condition}
+                        </div>
+                      )}
+                      {req.lateFee && (
+                        <div className="request-detail late-fee">
+                          <strong>Late Fee:</strong> ₱{req.lateFee}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Overdue Requests */}
+          {requests.filter(r => r.status === 'overdue').length > 0 && (
+            <div className="requests-section">
+              <h4>⚠️ Overdue Equipment</h4>
+              <div className="requests-list">
+                {requests.filter(r => r.status === 'overdue').map(req => (
+                  <div key={req.id} className="request-card overdue">
+                    <div className="request-card-header">
+                      <div className="request-title">
+                        <strong>{req.equipmentName}</strong> × {req.quantity || req.qty}
+                      </div>
+                      <span className="request-status overdue">⚠ Overdue</span>
+                    </div>
+                    <div className="request-card-body">
+                      <div className="request-detail">
+                        {req.userName || req.requester} • Expected: {req.returnDate}
+                      </div>
+                      <div className="request-detail overdue-days">
+                        <strong>Days Overdue:</strong> {req.daysOverdue} days
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Request Details Modal */}
+      {showRequestDetails && selectedRequest && (
+        <div className="modal-overlay" onClick={handleCloseRequestDetails}>
+          <div className="modal-content request-details-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Request Details</h3>
+              <button className="modal-close" onClick={handleCloseRequestDetails}>×</button>
+            </div>
+            
+            <div className="modal-body">
+              {requestError && (
+                <div className="modal-error">
+                  <span className="error-icon">⚠️</span>
+                  <span>{requestError}</span>
+                </div>
+              )}
+              
+              {requestSuccess && (
+                <div className="modal-success">
+                  <span className="success-icon">✅</span>
+                  <span>{requestSuccess}</span>
+                </div>
+              )}
+
+              <div className="request-details-grid">
+                <div className="detail-section">
+                  <h4>Equipment Information</h4>
+                  <div className="detail-row">
+                    <span className="detail-label">Equipment Name:</span>
+                    <span className="detail-value">{selectedRequest.equipmentName}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Quantity Requested:</span>
+                    <span className="detail-value">{selectedRequest.quantity} unit(s)</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Current Stock:</span>
+                    <span className="detail-value">
+                      {equipment.find(e => e.id === selectedRequest.equipmentId)?.quantity || 0} unit(s)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="detail-section">
+                  <h4>Requester Information</h4>
+                  <div className="detail-row">
+                    <span className="detail-label">Name:</span>
+                    <span className="detail-value">{selectedRequest.userName || selectedRequest.requester}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">User ID:</span>
+                    <span className="detail-value">{selectedRequest.userId}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Role:</span>
+                    <span className="detail-value">{selectedRequest.userRole}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Request ID:</span>
+                    <span className="detail-value">{selectedRequest.id}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Date Submitted:</span>
+                    <span className="detail-value">
+                      {new Date(selectedRequest.requestDate || selectedRequest.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="detail-section">
+                  <h4>Usage Information</h4>
+                  <div className="detail-row">
+                    <span className="detail-label">Purpose:</span>
+                    <span className="detail-value">{selectedRequest.purpose}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Duration:</span>
+                    <span className="detail-value">{selectedRequest.duration}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Return Date:</span>
+                    <span className="detail-value">{selectedRequest.returnDate}</span>
+                  </div>
+                  {selectedRequest.educationalPurpose && (
+                    <div className="detail-row">
+                      <span className="detail-label">Educational Purpose:</span>
+                      <span className="detail-value">Yes</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="detail-section full-width">
+                  <h4>Availability Check</h4>
+                  {(() => {
+                    const validation = validateRequest(selectedRequest);
+                    return validation.valid ? (
+                      <div className="availability-check success">
+                        <span className="check-icon">✅</span>
+                        <span>Request can be approved. Equipment is available.</span>
+                      </div>
+                    ) : (
+                      <div className="availability-check error">
+                        <span className="check-icon">❌</span>
+                        <span>{validation.message}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                className="btn-secondary" 
+                onClick={handleCloseRequestDetails}
+              >
+                Close
+              </button>
+              {selectedRequest.status === 'pending' && (
+                <>
+                  <button 
+                    className="btn-approve"
+                    onClick={() => handleApproveRequest(selectedRequest.id)}
+                    disabled={!validateRequest(selectedRequest).valid}
+                  >
+                    ✓ Accept Request
+                  </button>
+                  <button 
+                    className="btn-reject"
+                    onClick={() => handleRejectRequest(selectedRequest.id)}
+                  >
+                    ✗ Reject Request
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -291,53 +853,349 @@ export default function Admin({
       {/* Equipment Tab */}
       {activeTab === 'equipment' && (
         <div className="admin-equipment">
-          <h3>Equipment Management</h3>
-          
-          <div className="return-panel">
-            <h4>Mark Equipment as Returned</h4>
-            <div className="return-form">
+          <div className="equipment-header-section">
+            <h3>Equipment Status Management</h3>
+            <p className="subtitle">Update equipment status, track borrowing activities, and maintain accountability</p>
+          </div>
+
+          {/* Status Messages */}
+          {statusError && (
+            <div className="error-banner">
+              <span className="error-icon">⚠️</span>
+              <span className="error-message">{statusError}</span>
+              <button className="error-close" onClick={() => setStatusError('')}>×</button>
+            </div>
+          )}
+
+          {statusSuccess && (
+            <div className="success-banner">
+              <span className="success-icon">✓</span>
+              <span className="success-message">{statusSuccess}</span>
+              <button className="success-close" onClick={() => setStatusSuccess('')}>×</button>
+            </div>
+          )}
+
+          {/* Bulk Actions */}
+          <div className="bulk-actions-panel">
+            <div className="bulk-header">
+              <h4>Bulk Status Update</h4>
+              <span className="selected-count">{selectedItems.length} selected</span>
+            </div>
+            <div className="bulk-controls">
               <select
-                value={returnForm.equipmentId}
-                onChange={(e) => setReturnForm({ ...returnForm, equipmentId: e.target.value })}
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value)}
                 className="form-select"
               >
-                <option value="">Select Equipment</option>
-                {equipment.map(eq => (
-                  <option key={eq.id} value={eq.id}>
-                    {eq.name} ({eq.location})
-                  </option>
-                ))}
+                <option value="">Select status to apply</option>
+                <option value="Available">Available</option>
+                <option value="Unavailable">Unavailable</option>
+                <option value="Under Maintenance">Under Maintenance</option>
               </select>
-              <input
-                type="number"
-                min="1"
-                value={returnForm.quantity}
-                onChange={(e) => setReturnForm({ ...returnForm, quantity: parseInt(e.target.value) || 1 })}
-                className="form-input"
-                placeholder="Quantity"
-              />
-              <button className="btn-primary" onClick={handleReturn}>
-                Mark Returned
+              <button 
+                className="btn-bulk-update" 
+                onClick={handleBulkStatusUpdate}
+                disabled={selectedItems.length === 0}
+              >
+                Apply to Selected ({selectedItems.length})
               </button>
             </div>
           </div>
 
-          <div className="equipment-grid">
-            {equipment.map(eq => (
-              <div key={eq.id} className="equipment-card">
-                <div className="equipment-card-header">
-                  <strong>{eq.name}</strong>
-                  <span className={`availability-badge ${eq.quantity > 0 ? 'available' : 'unavailable'}`}>
-                    {eq.quantity} available
-                  </span>
+          {/* Equipment List with Status Management */}
+          <div className="equipment-status-grid">
+            {equipment.map(eq => {
+              const pendingCount = requests.filter(
+                r => r.equipmentId === eq.id && r.status === 'pending'
+              ).length;
+              const borrowingHistory = requests.filter(
+                r => r.equipmentId === eq.id && r.status === 'approved'
+              ).length;
+
+              return (
+                <div key={eq.id} className="equipment-status-card">
+                  <div className="card-header-with-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.includes(eq.id)}
+                      onChange={() => toggleItemSelection(eq.id)}
+                      className="equipment-checkbox"
+                    />
+                    <div className="equipment-card-header">
+                      <strong>{eq.name}</strong>
+                      <span className={`status-badge-large ${eq.available ? 'status-available' : 'status-unavailable'}`}>
+                        {eq.available ? '✓ Available' : '✗ Unavailable'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="equipment-card-body">
+                    <div className="detail-row">
+                      <span className="detail-label">Current Status:</span>
+                      <span className="detail-value">{eq.available ? 'Available' : 'Unavailable'}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Category:</span>
+                      <span className="detail-value">{eq.category}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Location:</span>
+                      <span className="detail-value">{eq.location}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Available Quantity:</span>
+                      <span className={`detail-value ${eq.quantity > 0 ? 'stock-available' : 'stock-low'}`}>
+                        {eq.quantity} units
+                      </span>
+                    </div>
+                    {pendingCount > 0 && (
+                      <div className="detail-row">
+                        <span className="detail-label">Pending Requests:</span>
+                        <span className="detail-value warning-text">{pendingCount}</span>
+                      </div>
+                    )}
+                    <div className="detail-row">
+                      <span className="detail-label">Borrowing History:</span>
+                      <span className="detail-value">{borrowingHistory} approved</span>
+                    </div>
+                  </div>
+
+                  <div className="card-actions">
+                    <button 
+                      className="btn-update-status"
+                      onClick={() => handleStatusUpdateClick(eq)}
+                    >
+                      Update Status
+                    </button>
+                  </div>
                 </div>
-                <div className="equipment-card-body">
-                  <div>Category: {eq.category}</div>
-                  <div>Location: {eq.location}</div>
-                  <div>Status: {eq.available ? 'Active' : 'Inactive'}</div>
+              );
+            })}
+          </div>
+
+          {/* Audit Log Section */}
+          {auditLog.length > 0 && (
+            <div className="audit-log-section">
+              <h4>Recent Status Changes (Audit Trail)</h4>
+              <div className="audit-log-list">
+                {auditLog.slice(0, 10).map(log => (
+                  <div key={log.id} className="audit-log-item">
+                    <div className="audit-icon">📝</div>
+                    <div className="audit-details">
+                      <div className="audit-main">
+                        <strong>{log.equipmentName}</strong>
+                        <span className="status-change">
+                          {log.oldStatus} → {log.newStatus}
+                        </span>
+                      </div>
+                      <div className="audit-meta">
+                        <span>Staff: {log.staffId}</span>
+                        <span>•</span>
+                        <span>{log.timestamp}</span>
+                        <span>•</span>
+                        <span>Reason: {log.reason}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Status Update Modal */}
+      {showStatusUpdateModal && selectedEquipment && (
+        <div className="modal-overlay" onClick={cancelStatusUpdate}>
+          <div className="modal-content status-update-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Update Equipment Status</h3>
+              <button className="modal-close" onClick={cancelStatusUpdate}>×</button>
+            </div>
+            
+            <div className="modal-body">
+              {confirmationMessage && (
+                <div className="warning-banner">
+                  <span className="warning-icon">⚠️</span>
+                  <span>{confirmationMessage}</span>
+                </div>
+              )}
+
+              {statusError && (
+                <div className="form-error-banner">
+                  <span className="error-icon">⚠️</span>
+                  <span>{statusError}</span>
+                </div>
+              )}
+
+              <div className="equipment-info-box">
+                <h4>{selectedEquipment.name}</h4>
+                <div className="info-grid">
+                  <div>
+                    <span className="info-label">Current Status:</span>
+                    <span className={`info-value ${selectedEquipment.available ? 'text-success' : 'text-danger'}`}>
+                      {selectedEquipment.available ? 'Available' : 'Unavailable'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="info-label">Location:</span>
+                    <span className="info-value">{selectedEquipment.location}</span>
+                  </div>
+                  <div>
+                    <span className="info-label">Quantity:</span>
+                    <span className="info-value">{selectedEquipment.quantity} units</span>
+                  </div>
                 </div>
               </div>
-            ))}
+
+              <div className="form-section">
+                <div className="form-group">
+                  <label htmlFor="newStatus">New Status: <span className="required">*</span></label>
+                  <select
+                    id="newStatus"
+                    value={statusUpdateData.status}
+                    onChange={(e) => {
+                      const isAvailable = e.target.value === 'Available';
+                      setStatusUpdateData({
+                        ...statusUpdateData,
+                        status: e.target.value,
+                        available: isAvailable
+                      });
+                    }}
+                    className="form-input"
+                  >
+                    <option value="Available">Available</option>
+                    <option value="Unavailable">Unavailable</option>
+                    <option value="Under Maintenance">Under Maintenance</option>
+                    <option value="In Use">In Use</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="quantity">Update Quantity:</label>
+                  <input
+                    id="quantity"
+                    type="number"
+                    min="0"
+                    value={statusUpdateData.quantity}
+                    onChange={(e) => setStatusUpdateData({
+                      ...statusUpdateData,
+                      quantity: parseInt(e.target.value) || 0
+                    })}
+                    className="form-input"
+                  />
+                  <span className="form-hint">Update if processing returns or restocking</span>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="reason">Reason for Status Change: <span className="required">*</span></label>
+                  <textarea
+                    id="reason"
+                    value={statusUpdateData.reason}
+                    onChange={(e) => setStatusUpdateData({
+                      ...statusUpdateData,
+                      reason: e.target.value
+                    })}
+                    className="form-input form-textarea"
+                    placeholder="Describe the reason for this status update (e.g., 'Equipment returned', 'Maintenance required', 'Approved borrowing request')..."
+                    rows="4"
+                  />
+                </div>
+              </div>
+
+              <div className="form-info">
+                <span className="info-icon">ℹ️</span>
+                <p>Status changes are logged with staff ID and timestamp for audit purposes. All users will see the updated status immediately.</p>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={cancelStatusUpdate}>
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={handleSubmitStatusUpdate}>
+                Update Status
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      {showConfirmation && (
+        <div className="modal-overlay" onClick={() => setShowConfirmation(false)}>
+          <div className="modal-content confirmation-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header confirmation-header">
+              <div className="confirm-icon">⚠️</div>
+              <h3>Confirm Status Update</h3>
+            </div>
+            
+            <div className="modal-body">
+              <p className="confirm-message">Are you sure you want to update the equipment status?</p>
+              
+              <div className="confirm-details">
+                <div className="confirm-row">
+                  <span>Equipment:</span>
+                  <strong>{selectedEquipment?.name}</strong>
+                </div>
+                <div className="confirm-row">
+                  <span>New Status:</span>
+                  <strong>{statusUpdateData.status}</strong>
+                </div>
+                <div className="confirm-row">
+                  <span>Quantity:</span>
+                  <strong>{statusUpdateData.quantity} units</strong>
+                </div>
+                <div className="confirm-row">
+                  <span>Reason:</span>
+                  <strong>{statusUpdateData.reason}</strong>
+                </div>
+              </div>
+
+              <div className="warning-note">
+                <span className="note-icon">📌</span>
+                <p>This change will be logged in the audit trail and cannot be undone. All users will immediately see the updated status.</p>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowConfirmation(false)}>
+                Cancel
+              </button>
+              <button className="btn-confirm" onClick={confirmStatusUpdate}>
+                Confirm Update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Update Confirmation */}
+      {showBulkUpdate && (
+        <div className="modal-overlay" onClick={() => setShowBulkUpdate(false)}>
+          <div className="modal-content confirmation-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header confirmation-header">
+              <div className="confirm-icon">📦</div>
+              <h3>Confirm Bulk Status Update</h3>
+            </div>
+            
+            <div className="modal-body">
+              <p className="confirm-message">Apply status "{bulkStatus}" to {selectedItems.length} selected item(s)?</p>
+              
+              <div className="warning-note">
+                <span className="note-icon">⚠️</span>
+                <p>This will update all selected equipment items simultaneously. Changes will be logged in the audit trail.</p>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowBulkUpdate(false)}>
+                Cancel
+              </button>
+              <button className="btn-confirm" onClick={confirmBulkUpdate}>
+                Confirm Bulk Update
+              </button>
+            </div>
           </div>
         </div>
       )}

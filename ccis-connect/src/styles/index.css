@@ -1,0 +1,143 @@
+:root {
+  font-family: 'Inter', 'Segoe UI', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* Modern Blue-Yellow-White Color Palette */
+  --primary-blue: #1e40af;
+  --primary-blue-light: #3b82f6;
+  --primary-blue-dark: #1e3a8a;
+  --accent-yellow: #fbbf24;
+  --accent-yellow-light: #fde047;
+  --accent-yellow-dark: #f59e0b;
+  --white: #ffffff;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-700: #374151;
+  --gray-900: #111827;
+  
+  color-scheme: light;
+  color: var(--gray-900);
+  background: linear-gradient(135deg, #eff6ff 0%, #fef3c7 100%);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #eff6ff 0%, #fef3c7 100%);
+  background-attachment: fixed;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input, select, textarea {
+  font-family: inherit;
+}
+
+/* Global Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: linear-gradient(135deg, var(--gray-50) 0%, rgba(254, 243, 199, 0.3) 100%);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-light) 100%);
+  border-radius: 10px;
+  border: 2px solid var(--gray-50);
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-light) 100%);
+  border-color: var(--white);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--gray-50);
+}
+
